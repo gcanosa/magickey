@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Magic Key | Musical Scale Discoverer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <meta name="description" content="Discover musical scales in real-time by selecting notes. A professional tool for musicians and composers.">
+  </head>
+  <body>
+    <div id="app" data-mode="discover">
+      <header>
+        <h1>Magic Key</h1>
+        <p class="header-tagline">Selecciona notas para descubrir escalas o ver la tonalidad mayor</p>
+        <div class="mode-switch" role="tablist" aria-label="Modo de trabajo">
+          <button type="button" id="mode-discover" class="mode-btn active" role="tab" aria-selected="true">
+            Descubrir escalas
+          </button>
+          <button type="button" id="mode-tonality" class="mode-btn" role="tab" aria-selected="false">
+            Notas en tonalidad mayor
+          </button>
+        </div>
+      </header>
+
+      <main>
+        <section class="selector-container">
+          <div class="audio-tools">
+            <button type="button" id="note-preview-toggle" class="audio-tool-btn" aria-pressed="false" title="Toca cada nota al pulsar un botón">
+              Sonido al tocar notas
+            </button>
+          </div>
+          <div class="note-row" id="naturals-row">
+            <!-- JS will populate these -->
+          </div>
+          <div class="note-row" id="sharps-row">
+            <!-- JS will populate these -->
+          </div>
+          <div class="note-row" id="flats-row">
+            <!-- JS will populate these -->
+          </div>
+        </section>
+
+        <section class="results-container">
+          <div id="key-detector" class="key-detector discover-only hidden">
+            <span>Clave Probable:</span>
+            <div id="best-key" class="best-key best-key-large">--</div>
+          </div>
+
+          <div class="results-header discover-only">
+            <h2>Escalas Encontradas</h2>
+            <span id="match-count">0 coincidencias</span>
+          </div>
+          <div id="scales-grid" class="scales-grid discover-only">
+            <div class="empty-state">Comienza a marcar notas para ver resultados</div>
+          </div>
+          <div id="tonality-panel" class="tonality-panel hidden" aria-live="polite"></div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <div class="footer-actions">
+          <button type="button" id="reset-btn">Resetear Notas</button>
+        </div>
+        <div class="copyright" role="contentinfo">
+          <p class="copyright-line">
+            <span class="copyright-year-inline">© 2026</span>
+            <span class="copyright-sep" aria-hidden="true">·</span>
+            <span class="copyright-name">Gerardo Canosa</span>
+            <span class="copyright-sep" aria-hidden="true">·</span>
+            <span class="copyright-rights-inline">All rights reserved</span>
+            <span class="copyright-sep" aria-hidden="true">·</span>
+            <a class="copyright-email" href="mailto:gera.canosa@gmail.com">gera.canosa@gmail.com</a>
+          </p>
+        </div>
+      </footer>
+    </div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
