@@ -118,6 +118,28 @@
         </div>
       </footer>
     </div>
+
+    <dialog
+      id="staff-sheet-dialog"
+      class="staff-sheet-dialog"
+      aria-labelledby="staff-sheet-dialog-title"
+    >
+      <div class="staff-sheet-dialog-panel">
+        <div class="staff-sheet-dialog-head">
+          <h2 id="staff-sheet-dialog-title" class="staff-sheet-dialog-title"></h2>
+          <button
+            type="button"
+            id="staff-sheet-dialog-close"
+            class="staff-sheet-dialog-close"
+            aria-label="Cerrar partitura"
+          >
+            Cerrar
+          </button>
+        </div>
+        <div id="staff-sheet-svg-mount" class="staff-sheet-svg-mount"></div>
+      </div>
+    </dialog>
+
     <script type="module" src="/main.js"></script>
   </body>
 </html>

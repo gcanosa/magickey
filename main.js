@@ -15,6 +15,131 @@ function scaleNoteKind(noteName) {
   return 'natural';
 }
 
+/** C=0 … B=6 for diatonic distance (scientific pitch / letter names). */
+const DIATONIC_LETTER_INDEX = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
+
+const STAFF_REF_DIATONIC = 4 * 7 + DIATONIC_LETTER_INDEX.E;
+
+/** @param {string} noteName e.g. C#, Bb */
+function noteLetter(noteName) {
+  return noteName[0];
+}
+
+/** @param {string} letter @param {number} octave */
+function diatonicIndex(letter, octave) {
+  const k = DIATONIC_LETTER_INDEX[letter];
+  if (k === undefined) return STAFF_REF_DIATONIC;
+  return octave * 7 + k;
+}
+
+/** @param {string[]} noteNames */
+function buildStaffSVG(noteNames) {
+  const oct = ascendingOctaveOffsetsForScale(noteNames);
+  const LINE_GAP = 12;
+  const TOP_LINE_Y = 36;
+  const BOTTOM_LINE_Y = TOP_LINE_Y + 4 * LINE_GAP;
+  const Y_E4 = BOTTOM_LINE_Y;
+  const HALF = LINE_GAP / 2;
+  const MIDDLE_LINE_Y = Y_E4 - 4 * HALF;
+  const NOTE_DX = 44;
+  const LEFT_MARGIN = 72;
+  const RIGHT_MARGIN = 48;
+  const n = noteNames.length;
+  const width = LEFT_MARGIN + Math.max(1, n) * NOTE_DX + RIGHT_MARGIN;
+  const height = 130;
+
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  svg.setAttribute('class', 'staff-sheet-svg');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Pentagrama en clave de sol');
+
+  for (let i = 0; i < 5; i++) {
+    const line = document.createElementNS(ns, 'line');
+    const y = TOP_LINE_Y + i * LINE_GAP;
+    line.setAttribute('x1', '0');
+    line.setAttribute('y1', String(y));
+    line.setAttribute('x2', String(width));
+    line.setAttribute('y2', String(y));
+    line.setAttribute('class', 'staff-sheet-staff-line');
+    svg.appendChild(line);
+  }
+
+  const clef = document.createElementNS(ns, 'text');
+  clef.setAttribute('x', '10');
+  clef.setAttribute('y', String(Y_E4 + 6));
+  clef.setAttribute('class', 'staff-sheet-clef');
+  clef.textContent = '\u{1D11E}';
+  svg.appendChild(clef);
+
+  for (let i = 0; i < n; i++) {
+    const name = noteNames[i];
+    const pc = CHROMATIC.indexOf(name);
+    if (pc < 0) continue;
+    const midi = 60 + pc + 12 * oct[i];
+    const octave = Math.floor(midi / 12) - 1;
+    const letter = noteLetter(name);
+    const steps = diatonicIndex(letter, octave) - STAFF_REF_DIATONIC;
+    const ny = Y_E4 - steps * HALF;
+    const nx = LEFT_MARGIN + i * NOTE_DX;
+
+    if (ny < TOP_LINE_Y - 0.5 || ny > BOTTOM_LINE_Y + 0.5) {
+      const ledger = document.createElementNS(ns, 'line');
+      ledger.setAttribute('x1', String(nx - 20));
+      ledger.setAttribute('y1', String(ny));
+      ledger.setAttribute('x2', String(nx + 20));
+      ledger.setAttribute('y2', String(ny));
+      ledger.setAttribute('class', 'staff-sheet-ledger');
+      svg.appendChild(ledger);
+    }
+
+    if (name.includes('#')) {
+      const acc = document.createElementNS(ns, 'text');
+      acc.setAttribute('x', String(nx - 26));
+      acc.setAttribute('y', String(ny + 5));
+      acc.setAttribute('class', 'staff-sheet-accidental');
+      acc.textContent = '\u266F';
+      svg.appendChild(acc);
+    } else if (name.length > 1 && name.includes('b')) {
+      const acc = document.createElementNS(ns, 'text');
+      acc.setAttribute('x', String(nx - 26));
+      acc.setAttribute('y', String(ny + 5));
+      acc.setAttribute('class', 'staff-sheet-accidental');
+      acc.textContent = '\u266D';
+      svg.appendChild(acc);
+    }
+
+    const head = document.createElementNS(ns, 'ellipse');
+    head.setAttribute('cx', String(nx));
+    head.setAttribute('cy', String(ny));
+    head.setAttribute('rx', '9');
+    head.setAttribute('ry', '6.5');
+    head.setAttribute('transform', `rotate(-22 ${nx} ${ny})`);
+    head.setAttribute('class', 'staff-sheet-note-head');
+    svg.appendChild(head);
+
+    const stemUp = ny > MIDDLE_LINE_Y;
+    const stem = document.createElementNS(ns, 'line');
+    if (stemUp) {
+      stem.setAttribute('x1', String(nx + 7));
+      stem.setAttribute('y1', String(ny - 1));
+      stem.setAttribute('x2', String(nx + 7));
+      stem.setAttribute('y2', String(ny - 42));
+    } else {
+      stem.setAttribute('x1', String(nx - 7));
+      stem.setAttribute('y1', String(ny + 1));
+      stem.setAttribute('x2', String(nx - 7));
+      stem.setAttribute('y2', String(ny + 42));
+    }
+    stem.setAttribute('class', 'staff-sheet-stem');
+    svg.appendChild(stem);
+  }
+
+  return svg;
+}
+
 // Audio: offline PCM + WAV <audio> playback so http:// (non-secure) and mobile browsers
 // still get sound. Web Audio is often inaudible on iOS for insecure remote origins.
 const SAMPLE_RATE = 44100;
@@ -376,6 +501,13 @@ const tonalityPanel = document.getElementById('tonality-panel');
 const modeDiscoverBtn = document.getElementById('mode-discover');
 const modeTonalityBtn = document.getElementById('mode-tonality');
 const notePreviewToggle = document.getElementById('note-preview-toggle');
+const staffSheetDialog = document.getElementById('staff-sheet-dialog');
+const staffSheetTitle = document.getElementById('staff-sheet-dialog-title');
+const staffSheetCloseBtn = document.getElementById('staff-sheet-dialog-close');
+const staffSvgMount = document.getElementById('staff-sheet-svg-mount');
+
+/** @type {Element | null} */
+let staffSheetDialogPrevFocus = null;
 
 const NATURALS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
 const SHARPS = ['C#', 'D#', 'F#', 'G#', 'A#'];
@@ -413,6 +545,40 @@ function handleNoteClick(index, btn) {
   updateDiscover();
 }
 
+function closeStaffSheetModal() {
+  if (!staffSheetDialog?.open) return;
+  staffSheetDialog.close();
+}
+
+/** @param {string} titleText @param {string[]} noteNames */
+function openStaffSheetModal(titleText, noteNames) {
+  if (!staffSheetDialog || !staffSheetTitle || !staffSvgMount) return;
+  const wasOpen = staffSheetDialog.open;
+  if (!wasOpen) staffSheetDialogPrevFocus = document.activeElement;
+  staffSheetTitle.textContent = titleText;
+  staffSvgMount.replaceChildren(buildStaffSVG(noteNames));
+  if (!wasOpen) staffSheetDialog.showModal();
+  staffSheetCloseBtn?.focus();
+}
+
+/** @param {HTMLHeadingElement} h3 @param {string} titleText @param {string[]} noteNames */
+function wireScaleTitleOpener(h3, titleText, noteNames) {
+  h3.classList.add('scale-card-title-btn');
+  h3.setAttribute('role', 'button');
+  h3.setAttribute('tabindex', '0');
+  h3.title = 'Ver partitura';
+  h3.addEventListener('click', e => {
+    e.preventDefault();
+    openStaffSheetModal(titleText, noteNames);
+  });
+  h3.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openStaffSheetModal(titleText, noteNames);
+    }
+  });
+}
+
 function createNoteBtn(note, list) {
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -429,6 +595,7 @@ function createNoteBtn(note, list) {
 
 function setAppMode(mode) {
   stopScalePlayback();
+  closeStaffSheetModal();
   appMode = mode;
   selectedNotesIndices.clear();
   lastUniqueProbableKey = false;
@@ -475,7 +642,9 @@ function renderTonality() {
   head.className = 'scale-card-head';
 
   const h3 = document.createElement('h3');
-  h3.textContent = `${rootName} mayor (Jónica)`;
+  const tonalityTitle = `${rootName} mayor (Jónica)`;
+  h3.textContent = tonalityTitle;
+  wireScaleTitleOpener(h3, tonalityTitle, scaleNotes);
 
   const actions = document.createElement('div');
   actions.className = 'scale-card-actions';
@@ -614,7 +783,9 @@ function renderResults(matches) {
     head.className = 'scale-card-head';
 
     const h3 = document.createElement('h3');
-    h3.textContent = `${match.rootName} ${match.scaleName}`;
+    const cardTitle = `${match.rootName} ${match.scaleName}`;
+    h3.textContent = cardTitle;
+    wireScaleTitleOpener(h3, cardTitle, match.notes);
 
     const actions = document.createElement('div');
     actions.className = 'scale-card-actions';
@@ -688,6 +859,7 @@ function init() {
 
   resetBtn.onclick = () => {
     stopScalePlayback();
+    closeStaffSheetModal();
     selectedNotesIndices.clear();
     document.querySelectorAll('.note-btn').forEach(b => b.classList.remove('active'));
     lastUniqueProbableKey = false;
@@ -700,6 +872,23 @@ function init() {
     themeToggle.onclick = () => setTheme(getTheme() === 'light' ? 'dark' : 'light');
   }
   syncThemeToggle();
+
+  if (staffSheetDialog && staffSheetCloseBtn) {
+    staffSheetCloseBtn.addEventListener('click', () => closeStaffSheetModal());
+    staffSheetDialog.addEventListener('click', e => {
+      if (e.target === staffSheetDialog) closeStaffSheetModal();
+    });
+    staffSheetDialog.addEventListener('close', () => {
+      if (staffSheetDialogPrevFocus instanceof HTMLElement) {
+        try {
+          staffSheetDialogPrevFocus.focus();
+        } catch {
+          /* ignore */
+        }
+      }
+      staffSheetDialogPrevFocus = null;
+    });
+  }
 }
 
 init();

@@ -1106,3 +1106,162 @@ header h1 {
     padding: 0.5rem 0.65rem;
   }
 }
+
+/* Staff sheet dialog */
+.staff-sheet-dialog {
+  margin: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  width: min(calc(100vw - 2rem), 720px);
+  max-width: calc(100vw - 2rem);
+  box-sizing: border-box;
+}
+
+.staff-sheet-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+html[data-theme='light'] .staff-sheet-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.staff-sheet-dialog-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: clamp(1rem, 3vw, 1.35rem);
+  box-shadow: var(--selector-shadow);
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.staff-sheet-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.staff-sheet-dialog-title {
+  margin: 0;
+  font-family: var(--font-elegant);
+  font-size: clamp(1.05rem, 2.5vw, 1.35rem);
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.25;
+  flex: 1;
+  min-width: 0;
+}
+
+.staff-sheet-dialog-close {
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.4rem 0.75rem;
+  min-height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  flex-shrink: 0;
+  background: rgba(244, 63, 94, 0.12);
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.35);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.staff-sheet-dialog-close:hover {
+  background: rgba(244, 63, 94, 0.22);
+  color: #fff;
+}
+
+.staff-sheet-dialog-close:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+html[data-theme='light'] .staff-sheet-dialog-close {
+  color: #be123c;
+  background: rgba(244, 63, 94, 0.1);
+}
+
+html[data-theme='light'] .staff-sheet-dialog-close:hover {
+  color: #9f1239;
+  background: rgba(244, 63, 94, 0.18);
+}
+
+.staff-sheet-svg-mount {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.staff-sheet-svg {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+.staff-sheet-staff-line {
+  stroke: var(--text-secondary);
+  stroke-width: 1.15;
+  stroke-opacity: 0.85;
+}
+
+.staff-sheet-ledger {
+  stroke: var(--text-secondary);
+  stroke-width: 1.1;
+  stroke-opacity: 0.85;
+}
+
+.staff-sheet-clef {
+  font-size: 2.85rem;
+  line-height: 1;
+  font-family: 'Apple Symbols', 'Segoe UI Symbol', 'Noto Music', serif;
+  fill: var(--text-primary);
+  opacity: 0.92;
+}
+
+.staff-sheet-note-head {
+  fill: var(--text-primary);
+  stroke: var(--text-primary);
+  stroke-width: 0.9;
+}
+
+.staff-sheet-stem {
+  stroke: var(--text-primary);
+  stroke-width: 1.35;
+  stroke-linecap: round;
+}
+
+.staff-sheet-accidental {
+  font-size: 1.15rem;
+  font-family: 'Apple Symbols', 'Segoe UI Symbol', serif;
+  fill: var(--text-primary);
+}
+
+.scale-card-title-btn {
+  cursor: pointer;
+  border-radius: 6px;
+  margin: -0.15rem;
+  padding: 0.15rem;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.scale-card-title-btn:hover {
+  color: var(--accent-primary);
+}
+
+.scale-card-title-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
