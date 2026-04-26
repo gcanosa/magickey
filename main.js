@@ -9,142 +9,211 @@ const ENHARMONIC_MAP = {
 
 const MAJOR_INTERVALS = [0, 2, 4, 5, 7, 9, 11];
 
-// Audio — shared context; resume() must complete before scheduling or first output is silent
-let audioCtx = null;
+// Audio: offline PCM + WAV <audio> playback so http:// (non-secure) and mobile browsers
+// still get sound. Web Audio is often inaudible on iOS for insecure remote origins.
+const SAMPLE_RATE = 44100;
+const PIANO_PARTIALS = [
+  [1, 1],
+  [2, 0.41],
+  [3, 0.175],
+  [4, 0.078],
+  [5, 0.036],
+  [6, 0.017]
+];
 
 function freqFromPitchClass(pc, octaveOffset = 0) {
   const midi = 60 + pc + 12 * octaveOffset;
   return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
-async function ensureAudioReady() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function envelopePianoMaster(localT, duration, peak, releaseTail) {
+  const t1 = 0.016;
+  const t2 = Math.max(t1 + 1e-4, duration * 0.25);
+  const t3 = duration + releaseTail;
+  if (localT < 0) return 0;
+  if (localT <= t1) return (localT / t1) * peak;
+  if (localT <= t2) {
+    const a = Math.max(0.0001, peak * 0.58);
+    return peak * Math.pow(a / peak, (localT - t1) / (t2 - t1));
   }
-  if (audioCtx.state === 'suspended') {
-    await audioCtx.resume();
+  if (localT <= t3) {
+    const a = Math.max(0.0001, peak * 0.58);
+    return a * Math.pow(0.001 / a, (localT - t2) / (t3 - t2));
   }
-  return audioCtx;
+  return 0;
 }
 
-/**
- * Piano-like tone: harmonic sines + lowpass; longer decay so pitch is easy to hear.
- * @returns {AudioNode[]} all nodes (for stop/disconnect)
- */
-function schedulePianoLikeNote(ctx, dest, pitchClassIndex, when, options = {}) {
-  const duration = options.duration ?? 0.62;
-  const peak = options.peak ?? 0.36;
-  const octaveOffset = options.octaveOffset ?? 0;
-
-  const freq = freqFromPitchClass(pitchClassIndex, octaveOffset);
+function mixPianoNote(f32, startSample, pitchClassIndex, duration, peak, octaveOffset) {
   const releaseTail = 0.34;
-  const tEnd = when + duration;
-  const stopAt = tEnd + releaseTail + 0.05;
+  const totalSamples = Math.ceil((duration + releaseTail + 0.06) * SAMPLE_RATE) + 2;
+  const freq0 = freqFromPitchClass(pitchClassIndex, octaveOffset);
+  const t0sec = startSample / SAMPLE_RATE;
 
-  const master = ctx.createGain();
-  master.connect(dest);
-  master.gain.setValueAtTime(0, when);
-  master.gain.linearRampToValueAtTime(peak, when + 0.016);
-  master.gain.exponentialRampToValueAtTime(Math.max(0.001, peak * 0.58), when + duration * 0.25);
-  master.gain.exponentialRampToValueAtTime(0.001, tEnd + releaseTail);
-
-  const filter = ctx.createBiquadFilter();
-  filter.type = 'lowpass';
-  filter.frequency.setValueAtTime(Math.min(9000, Math.max(700, freq * 11)), when);
-  filter.frequency.exponentialRampToValueAtTime(Math.min(2600, Math.max(350, freq * 3.2)), when + duration * 0.38);
-  filter.Q.setValueAtTime(0.62, when);
-  filter.connect(master);
-
-  const partials = [
-    [1, 1],
-    [2, 0.41],
-    [3, 0.175],
-    [4, 0.078],
-    [5, 0.036],
-    [6, 0.017]
-  ];
-
-  const nodes = [master, filter];
-
-  partials.forEach(([h, amp]) => {
-    const osc = ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq * h, when);
-    if (h > 1) osc.detune.setValueAtTime((h % 2 === 0 ? 2.8 : -2.8) * (h - 1), when);
-
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(amp, when);
-
-    osc.connect(g);
-    g.connect(filter);
-    osc.start(when);
-    osc.stop(stopAt);
-    nodes.push(osc, g);
-  });
-
-  return nodes;
-}
-
-function disconnectAudioNodes(nodes) {
-  nodes.forEach(n => {
-    try {
-      if (n instanceof OscillatorNode) n.stop(0);
-      n.disconnect();
-    } catch {
-      /* ignore */
+  for (let j = 0; j < totalSamples; j++) {
+    const i = startSample + j;
+    if (i >= f32.length) break;
+    const t = i / SAMPLE_RATE;
+    const localT = t - t0sec;
+    const g = envelopePianoMaster(localT, duration, peak, releaseTail);
+    if (g < 1e-7) continue;
+    let s = 0;
+    for (const [h, ap] of PIANO_PARTIALS) {
+      const detC = h > 1 ? (h % 2 === 0 ? 1 : -1) * 2.8 * (h - 1) : 0;
+      const fh = freq0 * h * Math.pow(2, detC / 1200);
+      s += ap * Math.sin(2 * Math.PI * fh * t);
     }
+    f32[i] += s * g;
+  }
+}
+
+function normalizeF32(f32) {
+  let m = 0;
+  for (let i = 0; i < f32.length; i++) m = Math.max(m, Math.abs(f32[i]));
+  if (m > 0.99) for (let i = 0; i < f32.length; i++) f32[i] *= 0.99 / m;
+}
+
+function buildWavMono16(int16) {
+  const n = int16.length;
+  const ab = new ArrayBuffer(44 + n * 2);
+  const dv = new DataView(ab);
+  const w = (o, s) => {
+    for (let k = 0; k < s.length; k++) dv.setUint8(o + k, s.charCodeAt(k));
+  };
+  w(0, 'RIFF');
+  dv.setUint32(4, 36 + n * 2, true);
+  w(8, 'WAVE');
+  w(12, 'fmt ');
+  dv.setUint32(16, 16, true);
+  dv.setUint16(20, 1, true);
+  dv.setUint16(22, 1, true);
+  dv.setUint32(24, SAMPLE_RATE, true);
+  dv.setUint32(28, SAMPLE_RATE * 2, true);
+  dv.setUint16(32, 2, true);
+  dv.setUint16(34, 16, true);
+  w(36, 'data');
+  dv.setUint32(40, n * 2, true);
+  let o = 44;
+  for (let i = 0; i < n; i++) {
+    let v = int16[i];
+    v = Math.max(-32768, Math.min(32767, v));
+    dv.setInt16(o, v, true);
+    o += 2;
+  }
+  return ab;
+}
+
+function playWavPcmF32(f32) {
+  normalizeF32(f32);
+  const n = f32.length;
+  const int16 = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    int16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32000));
+  }
+  const ab = buildWavMono16(int16);
+  const url = URL.createObjectURL(new Blob([ab], { type: 'audio/wav' }));
+  const a = new Audio();
+  a.src = url;
+  a.addEventListener(
+    'ended',
+    () => {
+      URL.revokeObjectURL(url);
+    },
+    { once: true }
+  );
+  a.play().catch(() => {
+    URL.revokeObjectURL(url);
   });
 }
 
-async function playChillSequence() {
-  const ctx = await ensureAudioReady();
-  const now = ctx.currentTime + 0.02;
-  const notes = [261.63, 329.63, 392.0, 493.88];
-
-  notes.forEach((freq, i) => {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(freq, now + i * 0.15);
-
-    const t = now + i * 0.15;
-    gain.gain.setValueAtTime(0, t);
-    gain.gain.linearRampToValueAtTime(0.16, t + 0.08);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.95);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start(t);
-    osc.stop(t + 1.15);
-  });
+function playChillSequence() {
+  const freqs = [261.63, 329.63, 392.0, 493.88];
+  const step = 0.15;
+  const endLast = 3 * step + 1.15;
+  const total = Math.ceil(endLast * SAMPLE_RATE) + 8;
+  const f32 = new Float32Array(total);
+  for (let ni = 0; ni < 4; ni++) {
+    const t0s = ni * step;
+    for (let i = 0; i < total; i++) {
+      const t = i / SAMPLE_RATE;
+      const localT = t - t0s;
+      if (localT < 0 || localT > 1.15) continue;
+      let g;
+      if (localT < 0.08) g = (localT / 0.08) * 0.16;
+      else g = 0.16 * Math.pow(0.001 / 0.16, (localT - 0.08) / 0.87);
+      f32[i] += g * Math.sin(2 * Math.PI * freqs[ni] * t);
+    }
+  }
+  playWavPcmF32(f32);
 }
 
-async function playQuickTone(pitchClassIndex) {
-  const ctx = await ensureAudioReady();
-  const when = ctx.currentTime;
-  schedulePianoLikeNote(ctx, ctx.destination, pitchClassIndex, when, {
-    duration: 0.72,
-    peak: 0.42
-  });
+function playQuickTone(pitchClassIndex) {
+  const duration = 0.72;
+  const peak = 0.42;
+  const releaseTail = 0.34;
+  const len = Math.ceil((releaseTail + duration + 0.1) * SAMPLE_RATE) + 4;
+  const f32 = new Float32Array(len);
+  mixPianoNote(f32, 0, pitchClassIndex, duration, peak, 0);
+  playWavPcmF32(f32);
 }
 
 let scalePlaybackGen = 0;
-const scalePlaybackTimers = [];
-const scalePlaybackNodes = [];
+/** @type {number[]} */
+let scaleNoteHighlightTimeouts = [];
+/** @type {HTMLAudioElement | null} */
+let activeScalePlayer = null;
+let activeScaleObjectUrl = null;
+
+const SCALE_STEP_SEC = 0.5;
+
+/** @param {string[]} noteNames */
+function ascendingOctaveOffsetsForScale(noteNames) {
+  const offsets = new Array(noteNames.length).fill(0);
+  let relOct = 0;
+  let lastPc = -1;
+  for (let k = 0; k < noteNames.length; k++) {
+    const pc = CHROMATIC.indexOf(noteNames[k]);
+    if (pc < 0) continue;
+    if (lastPc >= 0 && pc <= lastPc) relOct += 1;
+    offsets[k] = relOct;
+    lastPc = pc;
+  }
+  return offsets;
+}
+
+function clearScaleNoteHighlights() {
+  scaleNoteHighlightTimeouts.forEach(id => clearTimeout(id));
+  scaleNoteHighlightTimeouts = [];
+  document.querySelectorAll('.scale-note-playing').forEach(el => {
+    el.classList.remove('scale-note-playing');
+  });
+}
 
 function stopScalePlayback() {
   scalePlaybackGen++;
-  scalePlaybackTimers.splice(0).forEach(clearTimeout);
-  disconnectAudioNodes(scalePlaybackNodes);
-  scalePlaybackNodes.length = 0;
+  clearScaleNoteHighlights();
+  if (activeScalePlayer) {
+    try {
+      activeScalePlayer.pause();
+      activeScalePlayer.removeAttribute('src');
+    } catch {
+      /* ignore */
+    }
+    activeScalePlayer = null;
+  }
+  if (activeScaleObjectUrl) {
+    try {
+      URL.revokeObjectURL(activeScaleObjectUrl);
+    } catch {
+      /* ignore */
+    }
+    activeScaleObjectUrl = null;
+  }
   updateScalePlaybackUI(null);
 }
 
 function updateScalePlaybackUI(activeCard) {
-  if (!grid) return;
-  grid.querySelectorAll('.scale-card').forEach(card => {
+  if (!appRoot) return;
+  appRoot.querySelectorAll('.scale-card').forEach(card => {
     const play = card.querySelector('.scale-play-btn');
     const stop = card.querySelector('.scale-stop-btn');
     if (!play || !stop) return;
@@ -158,37 +227,83 @@ function updateScalePlaybackUI(activeCard) {
   });
 }
 
-async function startScalePlayback(noteNames, cardEl) {
+function startScalePlayback(noteNames, cardEl) {
   stopScalePlayback();
   const myGen = scalePlaybackGen;
-  const ctx = await ensureAudioReady();
-  if (myGen !== scalePlaybackGen) return;
 
+  const step = SCALE_STEP_SEC;
+  const duration = 0.52;
+  const peak = 0.3;
+  const releaseTail = 0.34;
+  const lastI = Math.max(0, noteNames.length - 1);
+  const endSec = lastI * step + duration + releaseTail + 0.08;
+  const totalSamples = Math.ceil(endSec * SAMPLE_RATE) + 8;
+  const f32 = new Float32Array(totalSamples);
+  const octOffsets = ascendingOctaveOffsetsForScale(noteNames);
+  for (let i = 0; i < noteNames.length; i++) {
+    const pc = CHROMATIC.indexOf(noteNames[i]);
+    if (pc < 0) continue;
+    const startSamp = Math.floor((i * step) * SAMPLE_RATE);
+    mixPianoNote(f32, startSamp, pc, duration, peak, octOffsets[i]);
+  }
+
+  normalizeF32(f32);
+  const n = f32.length;
+  const int16 = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    int16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32000));
+  }
+  const ab = buildWavMono16(int16);
+  const url = URL.createObjectURL(new Blob([ab], { type: 'audio/wav' }));
+  const a = new Audio();
+  a.src = url;
+  activeScaleObjectUrl = url;
+  activeScalePlayer = a;
   updateScalePlaybackUI(cardEl);
 
-  const step = 0.5;
-  const now = ctx.currentTime + 0.04;
+  const spans = cardEl.querySelectorAll('.scale-note');
+  for (let i = 0; i < noteNames.length; i++) {
+    const t = window.setTimeout(() => {
+      if (myGen !== scalePlaybackGen) return;
+      spans.forEach(s => s.classList.remove('scale-note-playing'));
+      const el = spans[i];
+      if (el) el.classList.add('scale-note-playing');
+    }, i * step * 1000);
+    scaleNoteHighlightTimeouts.push(t);
+  }
 
-  noteNames.forEach((name, i) => {
-    const pc = CHROMATIC.indexOf(name);
-    if (pc < 0) return;
-    const t0 = now + i * step;
-    const nodes = schedulePianoLikeNote(ctx, ctx.destination, pc, t0, {
-      duration: 0.52,
-      peak: 0.3
-    });
-    scalePlaybackNodes.push(...nodes);
-  });
-
-  const lastStart = now + Math.max(0, noteNames.length - 1) * step;
-  const totalMs = (lastStart - now + 0.52 + 0.36 + 0.08) * 1000;
-  const t = setTimeout(() => {
-    if (myGen === scalePlaybackGen) {
-      scalePlaybackNodes.length = 0;
-      updateScalePlaybackUI(null);
+  a.addEventListener(
+    'ended',
+    () => {
+      if (activeScaleObjectUrl === url) {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {
+          /* ignore */
+        }
+        activeScaleObjectUrl = null;
+        activeScalePlayer = null;
+        if (scalePlaybackGen === myGen) {
+          clearScaleNoteHighlights();
+          updateScalePlaybackUI(null);
+        }
+      }
+    },
+    { once: true }
+  );
+  a.play().catch(() => {
+    if (activeScaleObjectUrl === url) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        /* ignore */
+      }
+      activeScaleObjectUrl = null;
+      activeScalePlayer = null;
     }
-  }, totalMs);
-  scalePlaybackTimers.push(t);
+    clearScaleNoteHighlights();
+    updateScalePlaybackUI(null);
+  });
 }
 
 // Patterns (number of semitones from root)
@@ -308,6 +423,7 @@ function refreshUI() {
 }
 
 function renderTonality() {
+  stopScalePlayback();
   tonalityPanel.innerHTML = '';
 
   if (selectedNotesIndices.size === 0) {
@@ -322,16 +438,51 @@ function renderTonality() {
 
   const card = document.createElement('div');
   card.className = 'scale-card tonality-card';
-  card.innerHTML = `
-    <h3>${rootName} mayor (Jónica)</h3>
-    <div class="scale-notes">
-      ${scaleNotes.map(n => {
-        const idx = CHROMATIC.indexOf(n);
-        const isRoot = idx === rootIndex;
-        return `<span class="scale-note ${isRoot ? 'highlight' : ''}">${n}</span>`;
-      }).join('')}
-    </div>
-  `;
+
+  const head = document.createElement('div');
+  head.className = 'scale-card-head';
+
+  const h3 = document.createElement('h3');
+  h3.textContent = `${rootName} mayor (Jónica)`;
+
+  const actions = document.createElement('div');
+  actions.className = 'scale-card-actions';
+
+  const playBtn = document.createElement('button');
+  playBtn.type = 'button';
+  playBtn.className = 'scale-play-btn';
+  playBtn.textContent = 'Play';
+  playBtn.title = 'Tocar escala';
+
+  const stopBtn = document.createElement('button');
+  stopBtn.type = 'button';
+  stopBtn.className = 'scale-stop-btn';
+  stopBtn.textContent = 'Stop';
+  stopBtn.title = 'Detener';
+  stopBtn.disabled = true;
+
+  playBtn.addEventListener('click', () => {
+    startScalePlayback(scaleNotes, card);
+  });
+  stopBtn.addEventListener('click', () => {
+    stopScalePlayback();
+  });
+
+  actions.append(playBtn, stopBtn);
+  head.append(h3, actions);
+
+  const notesEl = document.createElement('div');
+  notesEl.className = 'scale-notes';
+  scaleNotes.forEach(n => {
+    const index = CHROMATIC.indexOf(n);
+    const isRoot = index === rootIndex;
+    const span = document.createElement('span');
+    span.className = `scale-note${isRoot ? ' highlight' : ''}`;
+    span.textContent = n;
+    notesEl.appendChild(span);
+  });
+
+  card.append(head, notesEl);
   tonalityPanel.appendChild(card);
 }
 
@@ -449,7 +600,7 @@ function renderResults(matches) {
     stopBtn.disabled = true;
 
     playBtn.addEventListener('click', () => {
-      void startScalePlayback(match.notes, card);
+      startScalePlayback(match.notes, card);
     });
     stopBtn.addEventListener('click', () => {
       stopScalePlayback();
@@ -486,7 +637,6 @@ function init() {
     notePreviewEnabled = !notePreviewEnabled;
     notePreviewToggle.classList.toggle('active', notePreviewEnabled);
     notePreviewToggle.setAttribute('aria-pressed', notePreviewEnabled ? 'true' : 'false');
-    if (notePreviewEnabled) void ensureAudioReady();
   };
 
   resetBtn.onclick = () => {
