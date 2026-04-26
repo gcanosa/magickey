@@ -32,8 +32,138 @@ function diatonicIndex(letter, octave) {
   return octave * 7 + k;
 }
 
-/** @param {string[]} noteNames */
-function buildStaffSVG(noteNames) {
+const LETTER_TO_NATURAL_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+
+const KEY_SIG_SHARP_ORDER = ['F', 'C', 'G', 'D', 'A', 'E', 'B'];
+const KEY_SIG_FLAT_ORDER = ['B', 'E', 'A', 'D', 'G', 'C', 'F'];
+
+/** Treble clef — vertical placement for key signature accidentals (letter + octave). */
+const TREBLE_KEY_SIG_SHARP_POS = [
+  { letter: 'F', octave: 5 },
+  { letter: 'C', octave: 5 },
+  { letter: 'G', octave: 5 },
+  { letter: 'D', octave: 5 },
+  { letter: 'A', octave: 4 },
+  { letter: 'E', octave: 5 },
+  { letter: 'B', octave: 4 }
+];
+const TREBLE_KEY_SIG_FLAT_POS = [
+  { letter: 'B', octave: 4 },
+  { letter: 'E', octave: 5 },
+  { letter: 'A', octave: 4 },
+  { letter: 'D', octave: 5 },
+  { letter: 'G', octave: 4 },
+  { letter: 'C', octave: 5 },
+  { letter: 'F', octave: 4 }
+];
+
+/** @param {number} pc pitch class 0–11 @returns {{ type: 'sharp' | 'flat', count: number }} */
+function keySignatureForMajorRoot(pc) {
+  const sharpRoots = [0, 7, 2, 9, 4, 11, 6, 1];
+  const si = sharpRoots.indexOf(pc);
+  if (si >= 0) return { type: 'sharp', count: si };
+
+  const flatRoots = [5, 10, 3, 8];
+  const fi = flatRoots.indexOf(pc);
+  if (fi >= 0) return { type: 'flat', count: fi + 1 };
+
+  return { type: 'sharp', count: 0 };
+}
+
+/** Parent major root (pitch class) used for key signature, from scale tonic and name. */
+function parentMajorPcForKeySignature(rootPc, scaleName) {
+  if (!scaleName || scaleName.includes('Blues')) return null;
+
+  if (
+    scaleName.includes('Major') ||
+    scaleName.includes('Jónica') ||
+    scaleName.includes('mayor') ||
+    scaleName.includes('Pentatónica Mayor')
+  ) {
+    return rootPc;
+  }
+  if (scaleName.includes('Menor Natural') || scaleName.includes('Eólica') || scaleName.includes('Pentatónica Menor')) {
+    return (rootPc + 3) % 12;
+  }
+  if (scaleName.includes('Menor Armónica') || scaleName.includes('Menor Melódica')) {
+    return (rootPc + 3) % 12;
+  }
+  if (scaleName.includes('Dórica')) return (rootPc + 10) % 12;
+  if (scaleName.includes('Frigia')) return (rootPc + 8) % 12;
+  if (scaleName.includes('Lidia')) return (rootPc + 7) % 12;
+  if (scaleName.includes('Mixolidia')) return (rootPc + 5) % 12;
+  if (scaleName.includes('Locria')) return (rootPc + 1) % 12;
+
+  return rootPc;
+}
+
+/** @param {string} tonicLetter one of C…B */
+function sevenLettersFromTonic(tonicLetter) {
+  const order = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+  const i = order.indexOf(tonicLetter);
+  const start = i >= 0 ? i : 0;
+  return Array.from({ length: 7 }, (_, k) => order[(start + k) % 7]);
+}
+
+/** Letter index offsets from tonic for each note in the scale (by scale type). */
+function scaleLetterOffsets(scaleName, noteCount) {
+  if (!scaleName || noteCount === 7) return [0, 1, 2, 3, 4, 5, 6];
+  if (scaleName.includes('Pentatónica Mayor')) return [0, 1, 2, 4, 5];
+  if (scaleName.includes('Pentatónica Menor')) return [0, 2, 3, 4, 6];
+  return [0, 1, 2, 3, 4, 5, 6].slice(0, noteCount);
+}
+
+/** @returns {-2|-1|0|1|2} alteration vs natural letter to reach pitch class */
+function alterStepsForLetterToPc(letter, targetPc) {
+  const nat = LETTER_TO_NATURAL_PC[letter];
+  if (nat === undefined) return 0;
+  for (const a of [0, 1, -1, 2, -2]) {
+    const pc = ((((nat + a) % 12) + 12) % 12);
+    if (pc === targetPc) return /** @type {-2|-1|0|1|2} */ (a);
+  }
+  return 0;
+}
+
+/** @param {'sharp'|'flat'} type @param {number} count */
+function keySigLetterAlterMap(type, count) {
+  /** @type {Record<string, 1 | -1>} */
+  const m = Object.create(null);
+  if (count <= 0) return m;
+  if (type === 'sharp') {
+    for (let i = 0; i < count; i++) m[KEY_SIG_SHARP_ORDER[i]] = 1;
+  } else {
+    for (let i = 0; i < count; i++) m[KEY_SIG_FLAT_ORDER[i]] = -1;
+  }
+  return m;
+}
+
+function keySigImpliedAlter(letter, map) {
+  if (!map || !letter) return 0;
+  return map[letter] ?? 0;
+}
+
+/**
+ * @param {string} letter
+ * @param {number} targetPc
+ * @param {Record<string, 1 | -1>} map
+ * @returns {{ show: boolean, symbol: string | null }}
+ */
+function accidentalPrintPlan(letter, targetPc, map) {
+  const need = alterStepsForLetterToPc(letter, targetPc);
+  const implied = keySigImpliedAlter(letter, map);
+  if (need === implied) return { show: false, symbol: null };
+  if (need === 1) return { show: true, symbol: '\u266F' };
+  if (need === -1) return { show: true, symbol: '\u266D' };
+  if (need === 0 && implied !== 0) return { show: true, symbol: '\u266E' };
+  if (need === 2) return { show: true, symbol: '\u266F' };
+  if (need === -2) return { show: true, symbol: '\u266D' };
+  return { show: false, symbol: null };
+}
+
+/** @typedef {{ rootPc: number, scaleName: string }} StaffMeta */
+
+/** @param {string[]} noteNames @param {StaffMeta | undefined} staffMeta */
+function buildStaffSVG(noteNames, staffMeta) {
   const oct = ascendingOctaveOffsetsForScale(noteNames);
   const LINE_GAP = 12;
   const TOP_LINE_Y = 36;
@@ -42,10 +172,27 @@ function buildStaffSVG(noteNames) {
   const HALF = LINE_GAP / 2;
   const MIDDLE_LINE_Y = Y_E4 - 4 * HALF;
   const NOTE_DX = 44;
-  const LEFT_MARGIN = 72;
-  const RIGHT_MARGIN = 48;
+  const CLEF_X = 10;
+  const KEY_SIG_X0 = 46;
+  const KEY_ACC_DX = 12;
+  const BASE_LEFT_AFTER_CLEF = 72;
+
+  const parentMaj = staffMeta ? parentMajorPcForKeySignature(staffMeta.rootPc, staffMeta.scaleName) : null;
+  const keySig =
+    parentMaj !== null ? keySignatureForMajorRoot(parentMaj) : { type: /** @type {'sharp'} */ ('sharp'), count: 0 };
+  const letterAlterMap =
+    staffMeta && parentMaj !== null && keySig.count > 0
+      ? keySigLetterAlterMap(keySig.type, keySig.count)
+      : staffMeta && parentMaj !== null
+        ? {}
+        : null;
+
+  const useKeySigLayout = Boolean(staffMeta && parentMaj !== null);
+  const keyAccCount = useKeySigLayout ? keySig.count : 0;
+  const keySigWidth = keyAccCount > 0 ? 8 + keyAccCount * KEY_ACC_DX : 0;
+  const LEFT_MARGIN = BASE_LEFT_AFTER_CLEF + keySigWidth;
   const n = noteNames.length;
-  const width = LEFT_MARGIN + Math.max(1, n) * NOTE_DX + RIGHT_MARGIN;
+  const width = LEFT_MARGIN + Math.max(1, n) * NOTE_DX + 48;
   const height = 130;
 
   const ns = 'http://www.w3.org/2000/svg';
@@ -68,11 +215,32 @@ function buildStaffSVG(noteNames) {
   }
 
   const clef = document.createElementNS(ns, 'text');
-  clef.setAttribute('x', '10');
+  clef.setAttribute('x', String(CLEF_X));
   clef.setAttribute('y', String(Y_E4 + 6));
   clef.setAttribute('class', 'staff-sheet-clef');
   clef.textContent = '\u{1D11E}';
   svg.appendChild(clef);
+
+  if (useKeySigLayout && keySig.count > 0) {
+    const positions = keySig.type === 'sharp' ? TREBLE_KEY_SIG_SHARP_POS : TREBLE_KEY_SIG_FLAT_POS;
+    const sym = keySig.type === 'sharp' ? '\u266F' : '\u266D';
+    for (let k = 0; k < keySig.count; k++) {
+      const { letter, octave } = positions[k];
+      const steps = diatonicIndex(letter, octave) - STAFF_REF_DIATONIC;
+      const ky = Y_E4 - steps * HALF;
+      const kx = KEY_SIG_X0 + k * KEY_ACC_DX;
+      const acc = document.createElementNS(ns, 'text');
+      acc.setAttribute('x', String(kx));
+      acc.setAttribute('y', String(ky + 5));
+      acc.setAttribute('class', 'staff-sheet-accidental staff-sheet-key-sig-acc');
+      acc.textContent = sym;
+      svg.appendChild(acc);
+    }
+  }
+
+  const tonicLetter = staffMeta ? noteLetter(CHROMATIC[staffMeta.rootPc]) : 'C';
+  const letters7 = sevenLettersFromTonic(tonicLetter);
+  const offsets = staffMeta ? scaleLetterOffsets(staffMeta.scaleName, n) : null;
 
   for (let i = 0; i < n; i++) {
     const name = noteNames[i];
@@ -80,7 +248,14 @@ function buildStaffSVG(noteNames) {
     if (pc < 0) continue;
     const midi = 60 + pc + 12 * oct[i];
     const octave = Math.floor(midi / 12) - 1;
-    const letter = noteLetter(name);
+
+    let letter;
+    if (useKeySigLayout && offsets && offsets[i] !== undefined) {
+      letter = letters7[offsets[i]];
+    } else {
+      letter = noteLetter(name);
+    }
+
     const steps = diatonicIndex(letter, octave) - STAFF_REF_DIATONIC;
     const ny = Y_E4 - steps * HALF;
     const nx = LEFT_MARGIN + i * NOTE_DX;
@@ -95,20 +270,32 @@ function buildStaffSVG(noteNames) {
       svg.appendChild(ledger);
     }
 
-    if (name.includes('#')) {
-      const acc = document.createElementNS(ns, 'text');
-      acc.setAttribute('x', String(nx - 26));
-      acc.setAttribute('y', String(ny + 5));
-      acc.setAttribute('class', 'staff-sheet-accidental');
-      acc.textContent = '\u266F';
-      svg.appendChild(acc);
-    } else if (name.length > 1 && name.includes('b')) {
-      const acc = document.createElementNS(ns, 'text');
-      acc.setAttribute('x', String(nx - 26));
-      acc.setAttribute('y', String(ny + 5));
-      acc.setAttribute('class', 'staff-sheet-accidental');
-      acc.textContent = '\u266D';
-      svg.appendChild(acc);
+    if (useKeySigLayout && letterAlterMap) {
+      const plan = accidentalPrintPlan(letter, pc, letterAlterMap);
+      if (plan.show && plan.symbol) {
+        const acc = document.createElementNS(ns, 'text');
+        acc.setAttribute('x', String(nx - 26));
+        acc.setAttribute('y', String(ny + 5));
+        acc.setAttribute('class', 'staff-sheet-accidental');
+        acc.textContent = plan.symbol;
+        svg.appendChild(acc);
+      }
+    } else {
+      if (name.includes('#')) {
+        const acc = document.createElementNS(ns, 'text');
+        acc.setAttribute('x', String(nx - 26));
+        acc.setAttribute('y', String(ny + 5));
+        acc.setAttribute('class', 'staff-sheet-accidental');
+        acc.textContent = '\u266F';
+        svg.appendChild(acc);
+      } else if (name.length > 1 && name.includes('b')) {
+        const acc = document.createElementNS(ns, 'text');
+        acc.setAttribute('x', String(nx - 26));
+        acc.setAttribute('y', String(ny + 5));
+        acc.setAttribute('class', 'staff-sheet-accidental');
+        acc.textContent = '\u266D';
+        svg.appendChild(acc);
+      }
     }
 
     const head = document.createElementNS(ns, 'ellipse');
@@ -550,31 +737,31 @@ function closeStaffSheetModal() {
   staffSheetDialog.close();
 }
 
-/** @param {string} titleText @param {string[]} noteNames */
-function openStaffSheetModal(titleText, noteNames) {
+/** @param {string} titleText @param {string[]} noteNames @param {StaffMeta | undefined} staffMeta */
+function openStaffSheetModal(titleText, noteNames, staffMeta) {
   if (!staffSheetDialog || !staffSheetTitle || !staffSvgMount) return;
   const wasOpen = staffSheetDialog.open;
   if (!wasOpen) staffSheetDialogPrevFocus = document.activeElement;
   staffSheetTitle.textContent = titleText;
-  staffSvgMount.replaceChildren(buildStaffSVG(noteNames));
+  staffSvgMount.replaceChildren(buildStaffSVG(noteNames, staffMeta));
   if (!wasOpen) staffSheetDialog.showModal();
   staffSheetCloseBtn?.focus();
 }
 
-/** @param {HTMLHeadingElement} h3 @param {string} titleText @param {string[]} noteNames */
-function wireScaleTitleOpener(h3, titleText, noteNames) {
+/** @param {HTMLHeadingElement} h3 @param {string} titleText @param {string[]} noteNames @param {StaffMeta | undefined} staffMeta */
+function wireScaleTitleOpener(h3, titleText, noteNames, staffMeta) {
   h3.classList.add('scale-card-title-btn');
   h3.setAttribute('role', 'button');
   h3.setAttribute('tabindex', '0');
   h3.title = 'Ver partitura';
   h3.addEventListener('click', e => {
     e.preventDefault();
-    openStaffSheetModal(titleText, noteNames);
+    openStaffSheetModal(titleText, noteNames, staffMeta);
   });
   h3.addEventListener('keydown', e => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      openStaffSheetModal(titleText, noteNames);
+      openStaffSheetModal(titleText, noteNames, staffMeta);
     }
   });
 }
@@ -644,7 +831,10 @@ function renderTonality() {
   const h3 = document.createElement('h3');
   const tonalityTitle = `${rootName} mayor (Jónica)`;
   h3.textContent = tonalityTitle;
-  wireScaleTitleOpener(h3, tonalityTitle, scaleNotes);
+  wireScaleTitleOpener(h3, tonalityTitle, scaleNotes, {
+    rootPc: rootIndex,
+    scaleName: 'Major (Jónica)'
+  });
 
   const actions = document.createElement('div');
   actions.className = 'scale-card-actions';
@@ -785,7 +975,10 @@ function renderResults(matches) {
     const h3 = document.createElement('h3');
     const cardTitle = `${match.rootName} ${match.scaleName}`;
     h3.textContent = cardTitle;
-    wireScaleTitleOpener(h3, cardTitle, match.notes);
+    wireScaleTitleOpener(h3, cardTitle, match.notes, {
+      rootPc: CHROMATIC.indexOf(match.rootName),
+      scaleName: match.scaleName
+    });
 
     const actions = document.createElement('div');
     actions.className = 'scale-card-actions';
