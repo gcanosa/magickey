@@ -9,9 +9,36 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
     <meta name="description" content="Discover musical scales in real-time by selecting notes. A professional tool for musicians and composers.">
+    <script>
+      (function () {
+        try {
+          var k = 'magickey-theme';
+          var t = localStorage.getItem(k);
+          if (t !== 'light' && t !== 'dark') t = 'dark';
+          document.documentElement.setAttribute('data-theme', t);
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="app" data-mode="discover">
+      <button
+        type="button"
+        class="theme-toggle"
+        id="theme-toggle"
+        title="Cambiar a tema claro"
+        aria-label="Cambiar a tema claro"
+        aria-pressed="false"
+      >
+        <span class="theme-icon theme-icon-sun" aria-hidden="true"
+          ><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            ><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" /></svg
+        ></span>
+        <span class="theme-icon theme-icon-moon" aria-hidden="true"
+          ><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            ><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" /></svg
+        ></span>
+      </button>
       <header>
         <h1>Magic Key</h1>
         <p class="header-tagline">Selecciona notas para descubrir escalas o ver la tonalidad mayor</p>
@@ -28,8 +55,22 @@
       <main>
         <section class="selector-container">
           <div class="audio-tools">
-            <button type="button" id="note-preview-toggle" class="audio-tool-btn" aria-pressed="false" title="Toca cada nota al pulsar un botón">
-              Sonido al tocar notas
+            <button
+              type="button"
+              id="note-preview-toggle"
+              class="audio-tool-btn"
+              aria-pressed="false"
+              title="Activar sonido al tocar notas"
+              aria-label="Activar sonido al tocar notas"
+            >
+              <span class="audio-icon audio-icon-on" aria-hidden="true"
+                ><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                  ><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M15.54 8.46a5 5 0 0 1 0 7.07" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></svg
+              ></span>
+              <span class="audio-icon audio-icon-off" aria-hidden="true"
+                ><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                  ><path d="M11 5L6 9H2v6h4l5 4V5z" /><line x1="22" y1="9" x2="16" y2="15" /><line x1="16" y1="9" x2="22" y2="15" /></svg
+              ></span>
             </button>
           </div>
           <div class="note-row" id="naturals-row">

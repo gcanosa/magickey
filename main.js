@@ -9,6 +9,12 @@ const ENHARMONIC_MAP = {
 
 const MAJOR_INTERVALS = [0, 2, 4, 5, 7, 9, 11];
 
+function scaleNoteKind(noteName) {
+  if (noteName.includes('#')) return 'sharp';
+  if (noteName.length > 1 && noteName.includes('b')) return 'flat';
+  return 'natural';
+}
+
 // Audio: offline PCM + WAV <audio> playback so http:// (non-secure) and mobile browsers
 // still get sound. Web Audio is often inaudible on iOS for insecure remote origins.
 const SAMPLE_RATE = 44100;
@@ -329,7 +335,33 @@ let selectedNotesIndices = new Set();
 let lastUniqueProbableKey = false;
 let notePreviewEnabled = false;
 
+const THEME_STORAGE_KEY = 'magickey-theme';
+
+function getTheme() {
+  return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+}
+
+function setTheme(mode) {
+  const next = mode === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, next);
+  } catch {
+    /* ignore */
+  }
+  syncThemeToggle();
+}
+
+function syncThemeToggle() {
+  const isLight = getTheme() === 'light';
+  if (!themeToggle) return;
+  themeToggle.setAttribute('aria-pressed', isLight ? 'true' : 'false');
+  themeToggle.setAttribute('aria-label', isLight ? 'Cambiar a tema oscuro' : 'Cambiar a tema claro');
+  themeToggle.title = isLight ? 'Cambiar a tema oscuro' : 'Cambiar a tema claro';
+}
+
 // UI Elements
+const themeToggle = document.getElementById('theme-toggle');
 const appRoot = document.getElementById('app');
 const naturalsRow = document.getElementById('naturals-row');
 const sharpsRow = document.getElementById('sharps-row');
@@ -477,7 +509,8 @@ function renderTonality() {
     const index = CHROMATIC.indexOf(n);
     const isRoot = index === rootIndex;
     const span = document.createElement('span');
-    span.className = `scale-note${isRoot ? ' highlight' : ''}`;
+    const kind = scaleNoteKind(n);
+    span.className = `scale-note scale-note--${kind}${isRoot ? ' highlight' : ''}`;
     span.textContent = n;
     notesEl.appendChild(span);
   });
@@ -614,8 +647,9 @@ function renderResults(matches) {
     match.notes.forEach(n => {
       const index = CHROMATIC.indexOf(n);
       const isSelected = selectedNotesIndices.has(index);
+      const kind = scaleNoteKind(n);
       const span = document.createElement('span');
-      span.className = `scale-note${isSelected ? ' highlight' : ''}`;
+      span.className = `scale-note scale-note--${kind}${isSelected ? ' highlight' : ''}`;
       span.textContent = n;
       notesEl.appendChild(span);
     });
@@ -633,11 +667,24 @@ function init() {
   modeDiscoverBtn.onclick = () => setAppMode('discover');
   modeTonalityBtn.onclick = () => setAppMode('tonality');
 
-  notePreviewToggle.onclick = () => {
-    notePreviewEnabled = !notePreviewEnabled;
+  function syncNotePreviewButton() {
+    if (!notePreviewToggle) return;
     notePreviewToggle.classList.toggle('active', notePreviewEnabled);
     notePreviewToggle.setAttribute('aria-pressed', notePreviewEnabled ? 'true' : 'false');
+    if (notePreviewEnabled) {
+      notePreviewToggle.title = 'Desactivar sonido al tocar notas';
+      notePreviewToggle.setAttribute('aria-label', 'Desactivar sonido al tocar notas. Sonido activado.');
+    } else {
+      notePreviewToggle.title = 'Activar sonido al tocar notas';
+      notePreviewToggle.setAttribute('aria-label', 'Activar sonido al tocar notas. Sonido desactivado.');
+    }
+  }
+
+  notePreviewToggle.onclick = () => {
+    notePreviewEnabled = !notePreviewEnabled;
+    syncNotePreviewButton();
   };
+  syncNotePreviewButton();
 
   resetBtn.onclick = () => {
     stopScalePlayback();
@@ -648,6 +695,11 @@ function init() {
   };
 
   appRoot.dataset.mode = appMode;
+
+  if (themeToggle) {
+    themeToggle.onclick = () => setTheme(getTheme() === 'light' ? 'dark' : 'light');
+  }
+  syncThemeToggle();
 }
 
 init();
